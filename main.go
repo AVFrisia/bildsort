@@ -35,7 +35,7 @@ func main() {
 	OutPath = dst
 
 	err = filepath.WalkDir(src, processImage)
-	
+
 	if err != nil {
 		log.Print(err)
 	}

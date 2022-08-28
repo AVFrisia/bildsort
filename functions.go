@@ -15,24 +15,6 @@ import (
 const DateTimeId = 0x9003
 const ExifDateLayout = "2006:01:02 15:04:05"
 
-// GetDate finds and extracts a TimeStamp from an array of EXIF tags.
-func GetDate(exifTags []exif.ExifTag) (time.Time, error) {
-	ti := slices.IndexFunc(exifTags, func(t exif.ExifTag) bool { return t.TagId == DateTimeId })
-
-	if ti < 0 {
-		return time.Time{}, errors.New("File has no timestamp!")
-	}
-
-	dateString := exifTags[ti].Formatted
-
-	timeStamp, err := time.Parse(ExifDateLayout, dateString)
-	if err != nil {
-		return time.Time{}, err
-	}
-
-	return timeStamp, nil
-}
-
 // GetSemester parses a time and returns the appropriate semester.
 //
 // According to the Leibniz University of Hannover, these are:
@@ -92,10 +74,63 @@ func allowed(d fs.DirEntry) bool {
 	if d.IsDir() {
 		return false
 	}
-	
+
 	// TODO: Perform some kind of pattern matching
 	// For now, files without EXIF (non-Images) fail silently
 	return true
+}
+
+// ExifDate finds and extracts a TimeStamp from an array of EXIF tags.
+func ExifDate(exifTags []exif.ExifTag) (time.Time, error) {
+	ti := slices.IndexFunc(exifTags, func(t exif.ExifTag) bool { return t.TagId == DateTimeId })
+
+	if ti < 0 {
+		return time.Time{}, errors.New("File has no timestamp!")
+	}
+
+	dateString := exifTags[ti].Formatted
+
+	timeStamp, err := time.Parse(ExifDateLayout, dateString)
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	return timeStamp, nil
+}
+
+func LastModified(path string) (time.Time, error) {
+	file, err := os.Stat(path)
+
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	return file.ModTime(), nil
+}
+
+// ExtractDate attempts to find a date for an image file using its EXIF metadata.
+//
+// If no EXIF tags are available, it uses the file's modification date.
+func ExtractDate(path string) (time.Time, error) {
+	data, err := exif.SearchFileAndExtractExif(path)
+	if err != nil {
+		log.Print(err, "using last modified")
+		return LastModified(path)
+	}
+
+	tags, _, err := exif.GetFlatExifData(data, nil)
+	if err != nil {
+		log.Print(err)
+		return LastModified(path)
+	}
+
+	date, err := ExifDate(tags)
+	if err != nil {
+		log.Print(err)
+		return LastModified(path)
+	}
+
+	return date, nil
 }
 
 func processImage(path string, d fs.DirEntry, err error) error {
@@ -103,15 +138,7 @@ func processImage(path string, d fs.DirEntry, err error) error {
 		return nil
 	}
 
-	data, err := exif.SearchFileAndExtractExif(path)
-	if err != nil {
-		log.Print(err)
-		return nil
-	}
-
-	tags, _, err := exif.GetFlatExifData(data, nil)
-
-	date, err := GetDate(tags)
+	date, err := ExtractDate(path)
 	if err != nil {
 		log.Print(err)
 		return nil
